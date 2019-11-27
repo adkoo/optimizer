@@ -62,7 +62,10 @@ class GaussProcess(Minimizer):
         self.target.mi.target = self.target
         
     # assemble hyper parameters
-        self.length_scales, self.amp_variance, self.single_noise_variance, self.mean_noise_variance, self.precision_matrix, self.offset = normscales.normscales(self.target.mi, self.devices, correlationsQ=self.correlationsQ)
+        try:
+            self.length_scales, self.amp_variance, self.single_noise_variance, self.mean_noise_variance, self.precision_matrix, self.offset = normscales.normscales(self.target.mi, self.devices, correlationsQ=self.correlationsQ)
+        except:
+            self.length_scales, self.amp_variance, self.single_noise_variance, self.mean_noise_variance, self.precision_matrix = normscales.normscales(self.target.mi, self.devices, correlationsQ=self.correlationsQ)
 
         # build precision_matrix if not returned
         print('Precision before',  self.precision_matrix ) 
