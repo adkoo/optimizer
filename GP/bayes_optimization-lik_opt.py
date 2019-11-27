@@ -63,6 +63,7 @@ from scipy.optimize import approx_fprime
 # from GP_utils import SPGP_likelihood_4scipy
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel as Ck, WhiteKernel
+from GP.OnlineGP import OGP
 try:
     from scipy.optimize import basinhopping
     basinhoppingQ = True
@@ -106,7 +107,7 @@ class BayesOpt:
         self.acq_func = (acq_func, xi, alt_param)
         #self.ucb_params = [0.01, 2.] # [nu,delta]
         self.ucb_params = [0.002, 0.4] # [nu,delta] we like for lcls2
-        self.ucb_params = [2.0, None] # [nu,delta] theortical values
+        #self.ucb_params = [2.0, None] # [nu,delta] theortical values
         #self.ucb_params = [0.007, 1.0] # [nu,delta]
         self.max_iter = 100
         self.check = None
@@ -196,7 +197,9 @@ class BayesOpt:
         self.Y_obs = [np.array([[inverse_sign*error_func(x)]])]
         # iterate though the GP method
         for i in range(self.max_iter):
-            if i > 5:
+            print('<><><><><><><><> iter number {} <><><><><><><<<'.format(i))
+            if i > 2:
+                print('****** Optimizing kerenl hyperparams')
                 self.optimize_log_lik()
             # get next point to try using acquisition function
             x_next = self.acquire(self.alpha)
@@ -279,23 +282,33 @@ class BayesOpt:
         return (self.X_obs[ind_best], mu_best)
 
     def sk_kernel(self, amp ,noise_var ,lengthscales):
-
+        #print('amp',amp,'noise_var',noise_var,'lengthscales',lengthscales)
         se_ard = Ck(amp)*RBF(length_scale=lengthscales, length_scale_bounds=(0.000001,20))
         noise = WhiteKernel(noise_level=noise_var,
                             noise_level_bounds=(1e-5, 100))  # noise terms
         # sk_kernel = se_ard + noise + Ck(0.4) #with bias
         sk_kernel = se_ard + noise
 
-        gpr = GaussianProcessRegressor(kernel=sk_kernel, n_restarts_optimizer=5)
-        gpr.fit(self.X_obs, self.Y_obs)
+        gpr = GaussianProcessRegressor(kernel=sk_kernel, n_restarts_optimizer=2)
+        print("Initial kernel: %s" % gpr.kernel)
+        self.ytrain = [y[0][0] for y in self.Y_obs]
+        gpr.fit(self.X_obs, self.ytrain)
 
         print("Learned kernel: %s" % gpr.kernel_)
         print("Log-marginal-likelihood: %.3f" % gpr.log_marginal_likelihood(gpr.kernel_.theta))
+        #print(gpr.kernel_.get_params())
 
-        sk_ls = gpr.kernel_.get_params()['k1__k1__k2__length_scale']
-        sk_noise = gpr.kernel_.get_params()['k1__k2__noise_level']
-        sk_amp = gpr.kernel_.get_params()['k1__k1__k1']
+        sk_ls = gpr.kernel_.get_params()['k1__k2__length_scale']
+        sk_noise = gpr.kernel_.get_params()['k2__noise_level']
+        sk_amp = gpr.kernel_.get_params()['k1__k1__constant_value']
         sk_loklik = gpr.log_marginal_likelihood(gpr.kernel_.theta)
+
+
+        #        #if bias is included use this:
+        #        sk_ls = gpr.kernel_.get_params()['k1__k1__k2__length_scale']
+        #        sk_noise = gpr.kernel_.get_params()['k1__k2__noise_level']
+        #        sk_amp = gpr.kernel_.get_params()['k1__k1__k1__constant_value']
+        #        sk_loklik = gpr.log_marginal_likelihood(gpr.kernel_.theta)
 
         return sk_loklik,sk_amp,sk_noise,sk_ls
 
@@ -310,30 +323,35 @@ class BayesOpt:
         amp = self.initial_hyperparams['covar amplitude']
 
         # optimize hyperparams using SK learn
-        sk_loklik0,sk_amp0,sk_noise0,sk_ls0 = sk_kernel(amp,noise_var,lengthscales)
+        sk_loklik0,sk_amp0,sk_noise0,sk_ls0 = self.sk_kernel(amp,noise_var,lengthscales)
 
         if self.X_obs.shape[0] > 1: # don't run twice on the first step
             #last hyperparams seen so far
-            current_lengthscales = np.sqrt(1./np.exp(self.model.covar_params[0]))
+            current_covar = np.sqrt(1./np.exp(self.model.covar_params[0])) #this gives a full matrix and not just lengscale, the sk learn
+            #can't deal with matrix.
+            current_lengthscales = np.diag(current_covar) #take only diagonal part - the lengthscales!
             current_covar_amp = np.exp(self.model.covar_params[1])
-            current_noise_variance = self.model.noise_var #np.exp(self.model.covar_params[2])
+            current_noise_variance = self.model.noise_var
 
             #repeate SK learn
-            sk_loklik,sk_amp,sk_noise,sk_ls = sk_kernel(amp,noise_var,lengthscales)
+            sk_loklik,sk_amp,sk_noise,sk_ls = self.sk_kernel(current_covar_amp,current_noise_variance,current_lengthscales)
 
             # compare lik and choose best hyperparams
-            if sk_ls > sk_ls0:
-                hyperparams = (sk_ls, np.log(sk_amp), np.log(sk_noise))
+            if sk_loklik > sk_loklik0:
+                hyperparams_opt = ((np.diag(1./(sk_ls**2))), np.log(sk_amp), np.log(sk_noise)) #this is the required packing for the online gp code
             else:
-                hyperparams = (sk_ls0, np.log(sk_amp0), np.log(sk_noise0))
+                hyperparams_opt = ((np.diag(1./(sk_ls0**2))), np.log(sk_amp0), np.log(sk_noise0))
+            print(hyperparams_opt)
 
-
-        # create new OnlineGP model
+        # create new OnlineGP model - overwrites the existing one
         print('sanity dim check: ',self.model.nin == self.X_obs.shape[1])
-        self.model = OGP(self.model.nin, hyperparams, maxBV=self.model.maxBV, covar = self.model.covar)#, weighted=self.model.weighted,maxBV=self.model.maxBV,                      prmean=self.model.prmean, prmeanp=self.model.prmeanp, prvar=self.model.prvar, prvarp=self.model.prvarp, proj=self.model.proj, weighted=self.model.weighted, thresh=self.model.thresh, sparsityQ=self.model.sparsityQ)
+        self.model = OGP(self.model.nin, hyperparams = hyperparams_opt, maxBV = self.model.maxBV, covar = self.model.covar)#, weighted=self.model.weighted,maxBV=self.model.maxBV, prmean=self.model.prmean, prmeanp=self.model.prmeanp, prvar=self.model.prvar, prvarp=self.model.prvarp,proj=self.model.proj,thresh=self.model.thresh, sparsityQ=self.model.sparsityQ)
 
         # initialize model on current data
-        self.model.fit(self.X_obs, self.Y_obs, self.X_obs.shape[0])
+        p_X = self.X_obs
+        p_Y = self.ytrain
+        num = p_X.shape[0]
+        self.model.fit(p_X, p_Y, num)
 
 
     def acquire(self, alpha=1.):
@@ -549,5 +567,3 @@ def negUCB(x_new, model, ndim, nsteps, nu = 1., delta = 1.):
 
 #UCB = y_new + mult * np.sqrt(var)
 #return -UCB
-
-# Thompson sampling
