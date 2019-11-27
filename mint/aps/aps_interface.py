@@ -1,6 +1,7 @@
 """
 Machine interface file for the APS to ocelot optimizer
-2019-11-27 add_global_bounds
+
+
 """
 from __future__ import absolute_import, print_function
 import os
@@ -60,6 +61,7 @@ class APSMachineInterface(MachineInterface):
         self._save_at_exit = False
         self._use_num_points = True
         self.read_only = False
+       # self.mi.bounds=0.2 #maximum step size of variables
 
         if 'epics' not in sys.modules:
             raise Exception('No module named epics. APSMachineInterface will not work. Try simulation mode instead.')
@@ -624,6 +626,7 @@ class APSMachineInterface(MachineInterface):
         sddsData.defineSimpleParameter("Number_Of_Iterations", sddsData.SDDS_LONG)
         sddsData.defineSimpleParameter("DataPoints",sddsData.SDDS_LONG)
         sddsData.defineSimpleParameter("HyperParFile",sddsData.SDDS_STRING)
+        sddsData.defineSimpleParameter("KernelFile",sddsData.SDDS_STRING)
         sddsData.defineSimpleColumn("Time",sddsData.SDDS_DOUBLE)
         sddsData.defineSimpleColumn("DeviceTime",sddsData.SDDS_DOUBLE)
         sddsData.defineSimpleColumn(objective_func_pv, sddsData.SDDS_DOUBLE)
@@ -632,7 +635,8 @@ class APSMachineInterface(MachineInterface):
            # print(device)
             sddsData.defineSimpleColumn(device,sddsData.SDDS_DOUBLE)
         for ipv in range(len(self.losspvs)):
-            sddsData.defineSimpleColumn(self.losspvs[ipv], sddsData.SDDS_DOUBLE)
+            if self.losspvs[ipv] not in self.data['pv_list']:
+                sddsData.defineSimpleColumn(self.losspvs[ipv], sddsData.SDDS_DOUBLE)
             self.data[self.losspvs[ipv]] = [a[ipv] for a in objective_func.losses]
 
         sddsData.setParameterValue("Objective", str(objective_func_pv), 1)
@@ -640,7 +644,9 @@ class APSMachineInterface(MachineInterface):
         sddsData.setParameterValue("Number_Of_Iterations",int(self.data["niter"]), 1)
         sddsData.setParameterValue("DataPoints",objective_func.points,1)
         parFile='/usr/local/oag/3rdParty/OcelotOptimizer-dev/parameters/anl_hyperparams.pkl'
+        kernelFile='/usr/local/oag/3rdParty/OcelotOptimizer-dev/GP/OnlineGP.py'
         sddsData.setParameterValue('HyperParFile',os.readlink(parFile),1)
+        sddsData.setParameterValue('KernelFile',os.readlink(kernelFile),1)
         print('timestamp from objective function')
         print(self.data['timestamps'][0])
         for pv in self.data['pv_list']:
@@ -664,7 +670,8 @@ class APSMachineInterface(MachineInterface):
         #    sddsData.setColumnValueList(pv, self.data[pv][0],1)
         for ipv in range(len(self.losspvs)):
            # print(self.data[self.losspvs[ipv]])
-           sddsData.setColumnValueList(self.losspvs[ipv], self.data[self.losspvs[ipv]],1)
+           if self.losspvs[ipv] not in self.data['pv_list']:
+               sddsData.setColumnValueList(self.losspvs[ipv], self.data[self.losspvs[ipv]],1)
         print('save sdds')
         try:
             sddsData.save(fout)

@@ -52,8 +52,8 @@ from mint import opt_objects as obj
 
 from mint.xfel.xfel_interface import *
 from mint.lcls.lcls_interface import *
-from mint.spear.spear_interface import *
 from mint.aps.aps_interface import *
+from mint.spear.spear_interface import *
 from mint.bessy.bessy_interface import *
 from mint.demo.demo_interface import *
 from mint.petra.petra_interface import *
@@ -71,7 +71,7 @@ from stats import stats
 
 AVAILABLE_MACHINE_INTERFACES = [XFELMachineInterface, LCLSMachineInterface, APSMachineInterface,
                                 TestMachineInterface, BESSYMachineInterface, MultinormalInterface, PETRAMachineInterface,
-                                DemoInterface]
+                                DemoInterface, SPEARMachineInterface]
 
 
 class OcelotInterfaceWindow(QFrame):
@@ -186,12 +186,12 @@ class OcelotInterfaceWindow(QFrame):
         self.path_to_obj_func = obj_func_file if not obj_func_file.endswith("pyc") else obj_func_file[:-1]
 
 
-        self.m_status = mint.MachineStatus()
+        #self.m_status = mint.MachineStatus()
         self.set_m_status()
 
         self.opt_control = mint.OptControl()
         self.opt_control.alarm_timeout = self.ui.sb_alarm_timeout.value()
-        self.opt_control.m_status = self.m_status
+        #self.opt_control.m_status = self.m_status
 
         #timer for plots, starts when scan starts
         self.update_plot_timer = QtCore.QTimer()
@@ -201,6 +201,9 @@ class OcelotInterfaceWindow(QFrame):
         self.ui.browser_data_slider.valueChanged.connect(self.browser_slider_changed)
         self.ui.browser_restore_btn.clicked.connect(self.browser_restore_clicked)
         self.mi.customize_ui(self)
+
+        self.m_state_indicator = QtCore.QTimer()
+        self.m_state_indicator.timeout.connect(self.indicate_machine_state)
 
     def parse_arguments(self):
         parser = argparse.ArgumentParser(description="Ocelot Optimizer",
@@ -371,18 +374,13 @@ class OcelotInterfaceWindow(QFrame):
 
         #GP Method
         if current_method == self.name_gauss:
-            scaling_coef = self.ui.sb_scaling_coef.value()
-            #minimizer = GaussProcess()
-            minimizer = GaussProcess(searchBoundScaleFactor=scaling_coef, bounds= self.mi.bounds)
-            minimizer.seedScanBool = self.ui.cb_use_live_seed.isChecked()
+           # minimizer = GaussProcess()
+           scaling_coef = self.ui.sb_scaling_coef.value()
+           minimizer = GaussProcess(searchBoundScaleFactor=scaling_coef, bounds=self.mi.bounds)
+           minimizer.seedScanBool = self.ui.cb_use_live_seed.isChecked()
 
         elif current_method == self.name_gauss_sklearn:
-#             minimizer = GaussProcessSKLearn()
-           # must pass the Scaling Coefficient value to the Bayes Optimizer in order to control
-            # the acquisition function search range (default is 3 length scales in each dimension
-            # for Scaling Coefficient of 1.)
-            scaling_coef = self.ui.sb_scaling_coef.value()
-            minimizer = GaussProcess(searchBoundScaleFactor=scaling_coef)
+            minimizer = GaussProcessSKLearn()
             minimizer.seed_iter = self.ui.sb_seed_iter.value()
 
         elif current_method == self.name_gauss_gpy:
@@ -414,7 +412,9 @@ class OcelotInterfaceWindow(QFrame):
             self.ui.save_state(self.set_file)
         if self.ui.pb_start_scan.text() == "Stop optimization":
             self.opt.opt_ctrl.stop()
-            self.m_status.is_ok = lambda: True
+            #  self.m_status.is_ok = lambda: True
+            self.m_state_indicator.stop()
+            self.set_widget_style("background-color:323232;")
             del(self.opt)
             self.ui.pb_start_scan.setStyleSheet("color: rgb(85, 255, 127);")
             self.ui.pb_start_scan.setText("Start optimization")
@@ -430,7 +430,9 @@ class OcelotInterfaceWindow(QFrame):
             # stop the optimization
             self.opt.opt_ctrl.stop()
             self.opt.join()
-            self.m_status.is_ok = lambda: True
+            #self.m_status.is_ok = lambda: True
+            self.m_state_indicator.stop()
+            self.set_widget_style("background-color:323232;")
 
             # Save the optimization parameters to the database
             #try:
@@ -572,7 +574,7 @@ class OcelotInterfaceWindow(QFrame):
 
         #self.opt.eval(seq)
         self.opt.start()
-
+        self.m_state_indicator.start(500)
         # Setting the button
         self.ui.pb_start_scan.setText("Stop optimization")
         self.ui.pb_start_scan.setStyleSheet("color: red")
@@ -624,22 +626,26 @@ class OcelotInterfaceWindow(QFrame):
             devices.append(dev)
         return devices
 
+    def set_widget_style(self, style="background-color:323232;"):
+        """
+        method to set widget_2 and widget_3 style
+        :param style: "background-color:323232;"
+        :return:
+        """
+        if self.ui.widget_3.styleSheet() == style:
+            return
+        self.ui.widget_2.setStyleSheet(style)
+        self.ui.widget_3.setStyleSheet(style)
+     
     def indicate_machine_state(self):
         """
         Method to indicate of the machine status. Red frames around graphics means that machine status is not OK.
         :return:
         """
-        if not self.opt_control.is_ok:
-            if self.ui.widget_3.styleSheet() == "background-color:red;":
-                return
-            self.ui.widget_2.setStyleSheet("background-color:red;")
-            self.ui.widget_3.setStyleSheet("background-color:red;")
-
+        if not self.m_status.is_ok():
+           self.set_widget_style("background-color:red;")
         else:
-            if self.ui.widget_3.styleSheet() == "background-color:323232;":
-                return
-            self.ui.widget_2.setStyleSheet("background-color:323232;")
-            self.ui.widget_3.setStyleSheet("background-color:323232;")
+           self.set_widget_style("background-color:323232;")
 
     def set_obj_fun(self, update_objfunc_text=True):
         """
@@ -738,6 +744,7 @@ class OcelotInterfaceWindow(QFrame):
         Method to set the MachineStatus method self.is_ok using GUI Alarm channel and limits
         :return: None
         """
+        self.m_status = mint.MachineStatus()
         alarm_dev = str(self.ui.le_alarm.text()).replace(" ", "")
         print("set_m_status: alarm_dev", alarm_dev)
         if alarm_dev == "":
@@ -1082,9 +1089,9 @@ def main():
     timer.timeout.connect(window.scan_finished)
     timer.start(300)
 
-    indicator = QtCore.QTimer()
-    indicator.timeout.connect(window.indicate_machine_state)
-    indicator.start(300)
+   # indicator = QtCore.QTimer()
+   # indicator.timeout.connect(window.indicate_machine_state)
+   # indicator.start(300)
 
     #show app
 
