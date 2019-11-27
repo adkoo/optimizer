@@ -81,10 +81,17 @@ class LINACTarget(Target):
         #    print("Exception was: ", ex)
         nap_time = 0.5
         time.sleep(nap_time)
-        data0=[]
-        for i in range(self.points):
-            data0.append(self.mi.get_value(self.eid))
-            time.sleep(nap_time)
+        
+        #wait for objective value to stablize
+        while 1:
+            data0=[]
+            for i in range(self.points):
+                data0.append(self.mi.get_value(self.eid))
+                time.sleep(nap_time)
+            obj_error=np.std(data0)
+            if obj_error<0.01:
+                break
+        
         datain = np.mean(data0)
         #datain = self.mi.get_value(self.eid)
 

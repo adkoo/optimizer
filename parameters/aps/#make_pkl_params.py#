@@ -503,7 +503,7 @@ f.close()
 #training each scan and then combine, no scan data for SC4:VL, use it from the scan training result 10/26 scan data
 #and use the scan data noise and amp for this one too.
 values=[0.2771375179,0.3055148047,0.8720667561,1.416137807,0.1999111605,0.3879193105,0.2685487319,0.5984099864,0.309825375,0.4151262889,3.504133945,0.3648814736,0.1567526525,0.1555142438,0.6485822926,0.20008924]
-dict['amp']=0.49
+dict['amp']=0.49885465
 dict['noise']=0.003
 rows=len(values)
 for i in range(rows):

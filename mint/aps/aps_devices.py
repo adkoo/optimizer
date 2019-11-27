@@ -9,6 +9,7 @@ class APSDevice(Device):
         self.mi = mi
         self.value_percent = 25.0
         self.range_percent = 2.0
+        self.mi.bounds=0.2 #maximum variable step size
 
     def get_delta(self):
         """
@@ -81,7 +82,12 @@ class APSQuad(APSDevice):
             prefix = eid[:eid.rfind(':')+1]
         else:
             prefix = eid+":"
-        self.timeout=15
+        self.timeout=30
+        self.mi = mi
+        self.mi.bounds = 0.4 #maximim variable step size
+       # self.timeout=1
+        #0.2 is for Linac front end magnets which is slow and strong hysteresis problem
+        self.stepSizeLimit=0.2 
         self.pv_set = "{}{}".format(prefix, "CurrentAO")
         self.pv_read = "{}{}".format(prefix, "CurrentAI")
         self.pv_low = "{}{}".format(prefix, "CurrentAO.DRVL")
