@@ -72,6 +72,7 @@ try:
 except:
     multiprocessingQ = False
 import time
+import copy
 from copy import deepcopy
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel as Ck, WhiteKernel
